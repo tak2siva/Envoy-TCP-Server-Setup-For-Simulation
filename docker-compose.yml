@@ -1,0 +1,28 @@
+version: '3'
+services:
+  envoy:
+    image: envoyproxy/envoy:latest
+    command: ["envoy", "-c", "/etc/config.yaml", "--service-cluster", "front-cluster", "--v2-config-only", "-l", "debug", "--service-zone", "default-zone", "--service-node", "default-node"]
+    volumes:
+     - ./config.yaml:/etc/config.yaml
+    ports:
+     - "8080:8080"
+     - "9901:9901"
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile-Server
+    security_opt:
+      - seccomp:unconfined
+    volumes:
+      - ./toggleCN:/toggleCN
+    command:
+      - /bin/sh
+      - -c
+      - |
+          dlv debug server/ -l 0.0.0.0:2345 --headless=true --log=true -- server
+    expose:
+      - "8081"
+    ports:
+      - "8081:8081"
+      - "2345:2345"

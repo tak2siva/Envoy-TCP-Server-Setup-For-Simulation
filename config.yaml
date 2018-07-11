@@ -1,0 +1,74 @@
+admin:
+  access_log_path: /tmp/admin_access.log
+  address:
+    socket_address: { address: 0.0.0.0, port_value: 9901 }
+
+static_resources:
+  listeners:
+  - name: listener_0
+    address:
+      socket_address: { address: 0.0.0.0, port_value: 8080 }
+    filter_chains:
+    - filters:
+      - name: envoy.http_connection_manager
+        config:
+          add_user_agent: true
+          use_remote_address: true
+          stat_prefix: ingress_http
+          codec_type: AUTO
+          access_log:
+          - name: envoy.file_access_log
+            filter:
+              and_filter:
+                filters:
+                  - status_code_filter:
+                      comparison:
+                          op: GE
+                          value:
+                            default_value: 200
+                            runtime_key: 2xx_key_1
+                  - status_code_filter:
+                      comparison:
+                          op: LE
+                          value:
+                            default_value: 299
+                            runtime_key: 2xx_key_2
+                  - runtime_filter:
+                      runtime_key: sample_key
+                      percent_sampled:
+                        numerator: 10
+                        denominator: HUNDRED
+            config:
+              path: /dev/stdout
+              format: "[ACCESS_LOG][%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %BYTES_RECEIVED% %BYTES_SENT% %DURATION% %RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)% \"%REQ(X-FORWARDED-FOR)%\" \"%REQ(USER-AGENT)%\" \"%REQ(X-REQUEST-ID)%\" \"%REQ(:AUTHORITY)%\" \"%UPSTREAM_HOST%\" \"%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%\"\n"
+          - name: envoy.file_access_log
+            filter:
+              status_code_filter:
+                comparison:
+                    op: GE
+                    value:
+                      default_value: 400
+                      runtime_key: err_key_1
+            config:
+              path: /dev/stdout
+              format: "[ACCESS_LOG][%START_TIME%] \"%REQ(:METHOD)% %REQ(X-ENVOY-ORIGINAL-PATH?:PATH)% %PROTOCOL%\" %RESPONSE_CODE% %RESPONSE_FLAGS% %BYTES_RECEIVED% %BYTES_SENT% %DURATION% %RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)% \"%REQ(X-FORWARDED-FOR)%\" \"%REQ(USER-AGENT)%\" \"%REQ(X-REQUEST-ID)%\" \"%REQ(:AUTHORITY)%\" \"%UPSTREAM_HOST%\" \"%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%\"\n"
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: local_service
+              domains: ["*"]
+              routes:
+              - match: { prefix: "/" }
+                route:
+                  cluster: some_service
+                  retry_policy:
+                    retry_on: "connect-failure"
+                    num_retries: 1
+          http_filters:
+          - name: envoy.router
+  clusters:
+  - name: some_service
+    connect_timeout: 0.25s
+    type: "strict_dns"
+    lb_policy: ROUND_ROBIN
+    hosts: [{ socket_address: { address: app, port_value: 8081 }}]
